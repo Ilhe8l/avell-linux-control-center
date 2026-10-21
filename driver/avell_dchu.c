@@ -28,6 +28,7 @@
 #include <linux/acpi.h>
 #include <linux/ctype.h>
 #include <linux/devm-helpers.h>
+#include <linux/dmi.h>
 #include <linux/hwmon.h>
 #include <linux/input.h>
 #include <linux/input/sparse-keymap.h>
@@ -97,10 +98,47 @@ static const guid_t dchu_guid =
 	GUID_INIT(0x93f224e4, 0xfbdc, 0x4bbf,
 		  0xad, 0xd6, 0xdb, 0x71, 0xbd, 0xc0, 0xaf, 0xad);
 
+/*
+ * Per-model quirks, matched by DMI. The firmware reports keyboard type and
+ * fan count itself (WMI13), so most models need no entry at all: add one
+ * only when that report is wrong or a feature misbehaves. 0 means "keep
+ * what the firmware said".
+ */
+struct avell_quirks {
+	u8 kbd_type;		/* WMI13 byte 15 override */
+	u8 fan_count;		/* WMI13 byte 12 override */
+};
+
+/*
+ * To add a model, get `sudo dmidecode -s system-product-name -s bios-version`
+ * (also printed in dmesg by the driver) and append a DMI_MATCH() entry, e.g.:
+ *
+ *	{
+ *		.matches = {
+ *			DMI_MATCH(DMI_PRODUCT_NAME, "<product name>"),
+ *			DMI_MATCH(DMI_BIOS_VERSION, "<bios version>"),
+ *		},
+ *		.driver_data = &(const struct avell_quirks){ .kbd_type = 6 },
+ *	},
+ */
+static const struct dmi_system_id avell_quirk_table[] = {
+	{ }
+};
+
 static bool hotkey_kbd_control = true;
 module_param(hotkey_kbd_control, bool, 0644);
 MODULE_PARM_DESC(hotkey_kbd_control,
 		 "Handle keyboard backlight Fn keys in the driver (default: on)");
+
+static unsigned char force_kbd_type;
+module_param(force_kbd_type, byte, 0444);
+MODULE_PARM_DESC(force_kbd_type,
+		 "Override the keyboard type reported by the firmware (WMI13 byte 15, 0 = auto)");
+
+static unsigned char force_fan_count;
+module_param(force_fan_count, byte, 0444);
+MODULE_PARM_DESC(force_fan_count,
+		 "Override the fan count reported by the firmware (0 = auto)");
 
 struct avell_dchu {
 	struct device *dev;
@@ -1300,7 +1338,15 @@ static const struct file_operations avell_misc_fops = {
 
 static void avell_read_features(struct avell_dchu *a)
 {
+	const struct dmi_system_id *dmi = dmi_first_match(avell_quirk_table);
+	const struct avell_quirks *q = dmi ? dmi->driver_data : NULL;
 	u8 t;
+
+	dev_info(a->dev, "DMI: %s %s, BIOS %s%s\n",
+		 dmi_get_system_info(DMI_SYS_VENDOR) ?: "?",
+		 dmi_get_system_info(DMI_PRODUCT_NAME) ?: "?",
+		 dmi_get_system_info(DMI_BIOS_VERSION) ?: "?",
+		 q ? " (quirks applied)" : "");
 
 	if (dchu_get_buf(a, CMD_SYS_INFO, a->sysinfo))
 		dev_warn(a->dev, "could not read WMI13 system info\n");
@@ -1310,8 +1356,18 @@ static void avell_read_features(struct avell_dchu *a)
 
 	a->fan_count = a->sysinfo[12];
 	a->fan_mode = a->sysinfo[14] == 5 ? 5 : 0;
-
 	t = a->sysinfo[15];
+
+	/* quirk table first, module parameters win */
+	if (q && q->fan_count)
+		a->fan_count = q->fan_count;
+	if (q && q->kbd_type)
+		t = q->kbd_type;
+	if (force_fan_count)
+		a->fan_count = force_fan_count;
+	if (force_kbd_type)
+		t = force_kbd_type;
+
 	if (t == 1)
 		a->kbd_type = KBD_WHITE;
 	else if (t == 2 || t == 6 || t == 22)

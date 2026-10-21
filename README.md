@@ -40,6 +40,20 @@ Outros Avell/Clevo com `CLV0001` devem funcionar. Confira com
 `ls /sys/bus/acpi/devices | grep CLV0001`. Abra uma issue com a saída de
 `avellctl` e `sudo dmesg | grep avell` para adicionar seu modelo.
 
+### Ajustes por modelo (quirks)
+
+O driver lê do firmware o tipo de teclado e o número de ventoinhas. Se a sua
+máquina reportar algo errado, teste sem recompilar:
+
+```bash
+sudo modprobe -r avell_dchu
+sudo modprobe avell_dchu force_kbd_type=6 force_fan_count=2
+```
+
+Se funcionar, abra um PR adicionando uma entrada `DMI_MATCH()` em
+`avell_quirk_table` (`driver/avell_dchu.c`). O driver imprime no `dmesg`
+a linha `DMI: <fabricante> <produto>, BIOS <versão>` para você copiar.
+
 ## Instalar
 
 Requisitos: Debian/Ubuntu (usa `apt` para instalar `dkms`, headers do kernel
