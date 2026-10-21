@@ -1,44 +1,47 @@
-# avell-a50i-linux-control
+# Avell Linux Control Center
 
-**Control Center nativo para Linux no Avell A50i** (e provavelmente outros
-Avell/Clevo com a interface ACPI `CLV0001` / `\_SB.DCHU`).
+**Control Center nativo para Linux em notebooks Avell/Clevo** que usam a
+interface ACPI `CLV0001` / `\_SB.DCHU` (Insyde DCHU).
 
-Port do **Control Center 3.0** (Clevo/Insyde) do Windows, feito por engenharia
-reversa com [REA](https://github.com/morluto/rea), `ilspycmd` e análise do
-DSDT. Inclui um driver de kernel (DKMS), um app GTK4/libadwaita e a CLI
-`avellctl`.
+O projeto porta o **Control Center 3.0** do Windows (Clevo/Insyde) por
+engenharia reversa e entrega três peças: um driver de kernel (DKMS), a CLI
+`avellctl` e um app GTK4/libadwaita. O núcleo é genérico: o driver pergunta
+ao firmware o que a máquina tem (ventoinhas, tipo de teclado) e só expõe
+isso. Diferenças entre modelos ficam numa tabela de quirks por DMI, sem
+duplicar código.
 
-> 🇺🇸 *Native Linux replacement for the Avell/Clevo Control Center: kernel
-> driver (power profiles, fan monitoring/modes, RGB keyboard with effects,
-> battery charge limit, Fn hotkeys) + GTK4 app. Tested on Avell A50i.*
+> 🇺🇸 *Native Linux replacement for the Avell/Clevo Control Center on
+> machines exposing the `CLV0001` DCHU ACPI interface: kernel driver (power
+> profiles, fans, RGB keyboard, battery charge limit, Fn hotkeys) + GTK4 app.*
 
 > ⚠️ Projeto **não oficial**, sem vínculo com a Avell ou a Clevo. Use por sua
 > conta e risco.
 
-## Recursos
+## O que foi portado
 
-| Recurso | Windows | Linux |
-|---|---|---|
-| Modos de energia (Silencioso, Economia, Entretenimento, Desempenho) | CC30 | `platform_profile` → **menu de energia do GNOME** + app |
-| Ventoinhas: RPM, temperatura, duty | FanSpeedSetting | `hwmon` (`sensors`, app) |
-| Modo das ventoinhas (auto, silencioso, máximo, Max-Q) | FanSpeedSetting | app / `avellctl fan` |
-| Limpeza anti-poeira | FanSpeedSetting | app / `avellctl antidust` |
-| Luz do teclado (branco ou RGB, cor, brilho) | LedKeyboardSetting | LED `avell::kbd_backlight` + app |
-| Efeitos do teclado | só RGB 3 zonas | também no **RGB de zona única** (gerados pelo driver) |
-| Limite de carga (FlexiCharger) | BatteryUtility | `charge_control_*_threshold` (**"Preservar saúde da bateria" do GNOME**) + app |
-| Teclas Fn (luz do teclado, modo de energia, avião, touchpad) | DCHUService + FnKey | tratadas no driver / dispositivo de entrada |
+| Componente do Control Center (Windows) | Equivalente no Linux |
+|---|---|
+| CC30: modos de energia (Silencioso, Economia, Entretenimento, Desempenho) | `platform_profile` → menu de energia do GNOME + app |
+| FanSpeedSetting: RPM, temperatura, duty, modos, anti-poeira | `hwmon` (`sensors`) + app / `avellctl fan`, `antidust` |
+| LedKeyboardSetting: luz branca ou RGB, cor, brilho, efeitos | LED `avell::kbd_backlight` + app (efeitos gerados pelo driver no RGB de zona única) |
+| BatteryUtility (FlexiCharger): limite de carga | `charge_control_*_threshold` ("Preservar saúde da bateria" do GNOME) + app |
+| DCHUService + FnKey: teclas Fn | tratadas no driver / dispositivo de entrada |
+| AcpiBridge + InsydeDCHU | driver `avell_dchu` (`acpi_evaluate_dsm`) |
 
-## Compatibilidade
+Drivers do restante do hardware do pacote Windows (vídeo, Wi-Fi, áudio etc.)
+já têm equivalente nativo no kernel: veja [docs/DRIVERS.md](docs/DRIVERS.md).
 
-Testado em:
+## Modelos
 
-| Modelo | BIOS / EC | Teclado | Sistema |
-|---|---|---|---|
-| Avell A50i (HYB A50i) | 1.07.01TBN / 1.07.03 | RGB zona única (tipo 6) | Debian 13, kernel 6.12, GNOME 48 |
+| Modelo | Status | BIOS / EC | Teclado | Sistema |
+|---|---|---|---|---|
+| Avell A50i (HYB A50i) | ✅ portado e testado | 1.07.01TBN / 1.07.03 | RGB zona única (tipo 6) | Debian 13, kernel 6.12, GNOME 48 |
+| Avell ION A50 | 🔎 a verificar | — | — | — |
 
-Outros Avell/Clevo com `CLV0001` devem funcionar. Confira com
-`ls /sys/bus/acpi/devices | grep CLV0001`. Abra uma issue com a saída de
-`avellctl` e `sudo dmesg | grep avell` para adicionar seu modelo.
+Qualquer Avell/Clevo com `CLV0001` pode funcionar. Confira com
+`ls /sys/bus/acpi/devices | grep CLV0001`. Para adicionar seu modelo, abra uma
+issue com a saída de `avellctl`, `sudo dmidecode -s system-product-name -s bios-version`
+e `sudo dmesg | grep avell`.
 
 ### Ajustes por modelo (quirks)
 
@@ -61,8 +64,8 @@ e GTK4/libadwaita). Com Secure Boot ativo, a chave MOK do DKMS precisa estar
 registrada.
 
 ```bash
-git clone https://github.com/LuizRojas/avell-a50i-linux-control.git
-cd avell-a50i-linux-control
+git clone https://github.com/LuizRojas/avell-linux-control-center.git
+cd avell-linux-control-center
 ./install.sh
 ```
 
@@ -109,6 +112,14 @@ resume a uma chamada ACPI:
 O driver faz essa mesma chamada com `acpi_evaluate_dsm()` e expõe tudo pelas
 interfaces padrão do kernel. A tabela completa de comandos e os detalhes estão
 em [docs/PROTOCOLO.md](docs/PROTOCOLO.md).
+
+## Contribuir
+
+- O desenvolvimento acontece na `develop`; a `main` é protegida e só recebe
+  releases por PR.
+- Abra o PR contra a `develop` usando o template do repositório
+  (título `[FEAT]`, `[FIX]`, `[DOCS]`…).
+- Mudanças no driver devem informar modelo, BIOS e kernel em que foram testadas.
 
 ## Segurança
 
